@@ -19,29 +19,38 @@ impl AegisConfig {
         Ok(())
     }
 
-    fn to_store(&self) -> InMemoryStore {
+    pub fn to_store(&self) -> InMemoryStore {
         let bcap = self.backend_config.len();
         let rcap = self.route_config.len();
-        let store = InMemoryStore::init_empty(rcap, bcap);
+        let mut store = InMemoryStore::init_empty(rcap, bcap);
+        store.fill(self);
         store
+    }
+
+    pub fn backend_config(&self) -> &Vec<BackendConfig> {
+        &self.backend_config
+    }
+
+    pub fn route_config(&self) -> &Vec<RouteConfig> {
+        &self.route_config
     }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct BackendConfig {
     name: Option<String>,
-    prefix: Option<String>,
-    url: String,
-    rate_limit_ip_min: Option<u32>,
-    rate_limit_token_min: Option<u32>,
+    pub prefix: Option<String>,
+    pub url: String,
+    pub rate_limit_ip_min: Option<u32>,
+    pub rate_limit_token_min: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct RouteConfig {
     name: Option<String>,
-    url: String,
-    rate_limit_ip_min: Option<u32>,
-    rate_limit_token_min: Option<u32>,
+    pub url: String,
+    pub rate_limit_ip_min: Option<u32>,
+    pub rate_limit_token_min: Option<u32>,
 }
 
 #[derive(Error, Debug)]
