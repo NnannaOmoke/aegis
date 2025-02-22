@@ -1,15 +1,20 @@
+use crate::config::AegisConfig;
+
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::config::AegisConfig;
+use tokio::sync::Mutex;
 
 //TODO: we need to track IPs per route, that's the first one, otherwise we'll have to add regex support
 //TODO: we also need to manage this so that we don't save every single IP that comes
 //so, maybe that requires another data structure in which we discuss how to remove stale IPs
 //i.e, if an IP has not made a request for n time, we remove it from our datastructure, and when it comes again, i.e. it's new
 //we add it in and do the rate limiting for it
+
+pub type RateLimiter = Arc<Mutex<InMemoryStore>>;
 
 #[derive(Copy, Clone, Debug)]
 pub enum StoreProcessResult {
@@ -21,7 +26,8 @@ pub enum StoreProcessResult {
 #[derive(Hash, Eq, PartialEq, PartialOrd, Clone, Debug)]
 pub enum RequestIdentifier {
     Token(String),
-    Ip(Ipv4Addr),
+    Ip(IpAddr),
+    NoParse,
 }
 
 #[derive(Debug)]
@@ -160,11 +166,20 @@ impl<'lt> InMemoryStore {
 
     //lmao I'm legit willing to use lifetimes rather than clone
     //checks if we have the route, if so, yes, and we check if we've done the rate limiting, if so, yes
-    pub fn process(&mut self, rpath: String, ip: RequestIdentifier) -> StoreProcessResult {
+    pub fn process(
+        &mut self,
+        rpath: (String, String),
+        ip: RequestIdentifier,
+    ) -> StoreProcessResult {
         //the flag will cascade if we haven't stored the route, i.e it's truly not found
         //so we have this -> rpath => routes? yes[return the result]: no[check the backend services? yes[return result]: no, then it's not found]
         let mut flag = StoreProcessResult::NotFound;
-        self.routes_store.entry(rpath.clone()).and_modify(|v| {
+        if rpath.0.is_empty() {
+            return flag;
+        }
+        let route_path = format!("{}/{}", rpath.0.clone(), rpath.1.clone());
+        //this takes in the authority/path
+        self.routes_store.entry(route_path).and_modify(|v| {
             v.gc();
             flag = v.check_or_add(ip.clone())
         });
@@ -172,7 +187,8 @@ impl<'lt> InMemoryStore {
             StoreProcessResult::RateLimitExceeded | StoreProcessResult::Continue => return flag,
             _ => {}
         };
-        self.backend_store.entry(rpath).and_modify(|v| {
+        //this takes in the authority alone
+        self.backend_store.entry(rpath.0).and_modify(|v| {
             v.gc();
             flag = v.check_or_add(ip)
         });
